@@ -1,5 +1,5 @@
 import { Assistant } from '@sketch-hq/sketch-assistant-types'
-import core from '@sketch-hq/sketch-assistant-core-rules'
+import core from '@sketch-hq/sketch-core-assistant'
 
 const assistant: Assistant = async (env) => {
   const coreAssistant = await core(env)
@@ -8,15 +8,15 @@ const assistant: Assistant = async (env) => {
     rules: coreAssistant.rules,
     config: {
       rules: {
-        '@sketch-hq/sketch-assistant-core-rules/text-styles-prefer-shared': {
+        '@sketch-hq/sketch-core-assistant/text-styles-prefer-shared': {
           active: true,
           maxIdentical: 2,
         },
-        '@sketch-hq/sketch-assistant-core-rules/layer-styles-prefer-shared': {
+        '@sketch-hq/sketch-core-assistant/layer-styles-prefer-shared': {
           active: true,
           maxIdentical: 2,
         },
-        '@sketch-hq/sketch-assistant-core-rules/groups-no-similar': {
+        '@sketch-hq/sketch-core-assistant/groups-no-similar': {
           active: true,
           maxIdentical: 2,
         },

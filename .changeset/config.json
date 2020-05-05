@@ -8,7 +8,8 @@
       "@sketch-hq/sketch-reuse-suggestions-assistant",
       "@sketch-hq/sketch-tidy-assistant",
       "@sketch-hq/sketch-assistant-utils",
-      "@sketch-hq/sketch-assistant-types"
+      "@sketch-hq/sketch-assistant-types",
+      "@sketch-hq/sketch-core-assistant"
     ]
   ],
   "access": "public",

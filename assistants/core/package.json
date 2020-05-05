@@ -1,0 +1,50 @@
+{
+  "name": "@sketch-hq/sketch-core-assistant",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": "github:sketch-hq/sketch-assistants",
+  "homepage": "https://github.com/sketch-hq/sketch-assistants/assistants/core",
+  "main": "dist/index",
+  "types": "dist/index",
+  "keywords": [
+    "sketch",
+    "sketch files",
+    "rules only",
+    "core rules",
+    "sketch assistant",
+    "assistant",
+    "design ops"
+  ],
+  "scripts": {
+    "build": "yarn type-check && yarn i18n:compile && babel ./src --out-dir dist --extensions '.js,.ts'",
+    "i18n:compile": "lingui compile",
+    "i18n:extract": "lingui extract --clean",
+    "test": "jest",
+    "type-check": "tsc --emitDeclarationOnly"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@lingui/core": "2.9.1",
+    "@sketch-hq/sketch-assistant-types": "4.0.1-next.8",
+    "@types/lingui__core": "2.7.0",
+    "@types/lingui__macro": "2.7.3"
+  },
+  "peerDependencies": {},
+  "devDependencies": {
+    "@babel/cli": "7.8.4",
+    "@babel/core": "7.9.6",
+    "@babel/plugin-proposal-class-properties": "7.8.3",
+    "@babel/plugin-proposal-object-rest-spread": "7.9.6",
+    "@babel/preset-env": "7.9.6",
+    "@babel/preset-typescript": "7.9.0",
+    "@lingui/cli": "2.9.1",
+    "@lingui/macro": "2.9.1",
+    "@sketch-hq/sketch-assistant-utils": "4.0.1-next.8",
+    "babel-core": "6.26.3",
+    "babel-jest": "26.0.1",
+    "babel-loader": "8.1.0",
+    "babel-plugin-macros": "2.8.0"
+  }
+}
