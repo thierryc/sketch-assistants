@@ -1,6 +1,5 @@
 import {
   FileFormat,
-  Node,
   Assistant,
   RuleOptionsCreator,
   RuleFunction,
@@ -10,15 +9,15 @@ import {
   ViolationSeverity,
   RuleConfigGroup,
   AssistantEnv,
-  AssistantResult,
-  Platform,
+  AssistantSuccessResult,
   RuleConfig,
-  AssistantPackageExport,
+  AssistantPackage,
+  AssistantRuntime,
 } from '@sketch-hq/sketch-assistant-types'
 import { fromFile } from '../from-file'
 import { process } from '../process'
 import { prepare, getRuleDefinition } from '../assistant'
-import { runAssistant } from '../run-assistant'
+import { runAssistant } from '../run/run-assistant'
 import { getImageMetadata } from '../get-image-metadata'
 
 /**
@@ -31,7 +30,7 @@ const createRule = ({
   getOptions,
   name,
   debug,
-  platform,
+  runtime,
 }: {
   title?: RuleDefinition['title']
   description?: RuleDefinition['description']
@@ -39,7 +38,7 @@ const createRule = ({
   name?: string
   getOptions?: RuleOptionsCreator
   debug?: boolean
-  platform?: Platform
+  runtime?: AssistantRuntime
 } = {}): RuleDefinition => ({
   name: name ?? 'dummy-assistant/dummy-rule',
   title: title ?? 'Dummy Rule',
@@ -47,7 +46,7 @@ const createRule = ({
   rule: rule || (async (): Promise<void> => {}),
   getOptions,
   debug,
-  platform,
+  runtime,
 })
 
 /**
@@ -101,23 +100,22 @@ const createAssistant = ({
 } = {}): Assistant => async (): Promise<AssistantDefinition> =>
   createAssistantDefinition({ title, description, name, config, rules })
 
-const createDummyRectNode = (): Node<FileFormat.Rect> => ({
+const createDummyRect = (): FileFormat.Rect => ({
   _class: 'rect',
   constrainProportions: false,
   height: 10,
   width: 10,
   x: 0,
   y: 0,
-  $pointer: '/document/pages/0/layers/0',
 })
 
 export const testRule = async (
   filepath: string,
-  assistant: AssistantPackageExport,
+  assistant: AssistantPackage,
   ruleName: string,
   ruleConfig: RuleConfig = { active: true },
-  env: AssistantEnv = { locale: 'en', platform: 'node' },
-): Promise<AssistantResult> => {
+  env: AssistantEnv = { locale: 'en', runtime: AssistantRuntime.Node },
+): Promise<AssistantSuccessResult> => {
   const file = await fromFile(filepath)
   const op = { cancelled: false }
   const processedFile = await process(file, op)
@@ -138,7 +136,7 @@ export const testRule = async (
 
 export {
   createRule,
-  createDummyRectNode,
+  createDummyRect,
   createAssistantConfig,
   createAssistant,
   createAssistantDefinition,

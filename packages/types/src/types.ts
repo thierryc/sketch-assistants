@@ -17,11 +17,6 @@ export { FileFormat3 as FileFormat }
 export type Maybe<T> = T | undefined | null
 
 /**
- * All possible string values for the `_class` property in Sketch files.
- */
-export type SketchClass = FileFormat3.AnyObject['_class']
-
-/**
  * Utility function for gathering metadata about Sketch file images. Is isomorphic in the sense that
  * its signature shouldn’t change across platforms.
  */
@@ -34,15 +29,6 @@ export type ImageMetadata = {
   width: number
   height: number
   ref: string
-}
-
-/**
- * Represents a Sketch file that is on disk. Collates the filepath with an object
- * typed as Contents from the file format.
- */
-export type SketchFile = {
-  filepath: string
-  contents: FileFormat3.Contents
 }
 
 /**
@@ -64,73 +50,93 @@ export type ESModuleInterop<T> = {
  */
 export type MaybeESModule<T> = T | ESModuleInterop<T>
 
+/**
+ * Unwrap an array type up one level, e.g. extract Foo from Foo[].
+ */
+export type Unarray<T> = T extends Array<infer U> ? U : T
+
+/**
+ * Iterable object that uses a generator function.
+ */
+export type GeneratorIterable<T> = {
+  [Symbol.iterator]: () => Generator<T>
+}
+
 //
-// Sketch file traversal and caching
+// Sketch file processing
 //
 
 /**
- * Union of all possible objects with a `_class` value that can be found in a Sketch
- * file, injected with a JSON Pointer during file processing.
+ * A simple primitive type alias to represent a JSON Pointer string.
  */
-export type Node<T = FileFormat3.AnyObject> = T & {
-  $pointer: string
+export type JsonPointer = string
+
+/**
+ * Represents a Sketch file that is on disk. Collates the filepath with an object typed as Contents
+ * from the file format.
+ */
+export type SketchFile = {
+  filepath: string
+  contents: FileFormat3.Contents
 }
 
 /**
- * Array of Nodes. A concrete example of this in a Sketch file is a group’s `layers` array.
+ * The root document object with `_class` `document` in a parsed Sketch file.
  */
-export interface NodeArray extends Array<Node> {
-  $pointer: string
+export type DocumentObject = FileFormat3.Contents['document']
+
+/**
+ * Union of all possible objects in a parsed Sketch file that have a `_class` property, including
+ * the root document object.
+ */
+export type SketchFileObject = FileFormat3.AnyObject | DocumentObject
+
+/**
+ * Look-up a pointer value using a Sketch file object reference.
+ */
+export type PointerMap = WeakMap<SketchFileObject, JsonPointer>
+
+/**
+ * A cache of Sketch file objects. Each key is a `_class` value from the file
+ * format, and the corresponding value is an array of file objects with matching
+ * `_class` values.
+ */
+export type ObjectCache = {
+  [key in keyof FileFormat3.ClassMap]: FileFormat3.ClassMap[key][]
+} & {
+  anyGroup: FileFormat3.AnyGroup[]
+  anyLayer: FileFormat3.AnyLayer[]
+  document: DocumentObject[]
 }
 
 /**
- * All possible Node and primitive values that a JSON Pointer can resolve to in a Sketch file.
+ * Same as ObjectCache, except the cache values are an iterable that yields
+ * the file objects, rather than a simple array.
  */
-export type PointerValue =
-  | Node
-  | NodeArray
-  | Node<FileFormat3.Contents>
-  | Node<FileFormat3.Contents['document']>
-  | Node<FileFormat3.Contents['meta']>
-  | Node<FileFormat3.Contents['user']>
-  | string
-  | number
-  | boolean
-
-/**
- * Rule-supplied function called during cache iteration. Rules will typically use these while
- * scanning a Sketch file for relevant objects and checking the values against their logic.
- */
-export type NodeCacheVisitor = (data: Node) => Promise<void>
-
-/**
- * Rules supply a cache iterator config to register visitor functions against the specific object
- * types available in the cache.
- */
-export type NodeCacheIteratorConfig = {
-  [key in keyof NodeCache]?: NodeCacheVisitor
+export type IterableObjectCache = {
+  [key in keyof ObjectCache]: GeneratorIterable<Unarray<ObjectCache[key]>>
 }
 
 /**
- * A function that iterates a cache using a cache iteration config.
- */
-export type NodeCacheIterator = (config: NodeCacheIteratorConfig) => Promise<void>
-
-/**
- * A cache of Sketch file Nodes keyed by `_class` values. The special `$layers` key collates all
- * layer Nodes, and the `$groups` key collates all layer Nodes that are also groups.
- */
-export type NodeCache = {
-  $layers: Node[]
-  $groups: Node[]
-} & { [key in SketchClass]?: Node[] }
-
-/**
- * A processed Sketch file is one that has had its objects cached into a NodeCache, and JSON
- * Pointers injected.
+ * A processed Sketch file collates a SketchFile object along with various data structures suited
+ * for efficiently inspecting its contents.
  */
 export type ProcessedSketchFile = {
-  cache: NodeCache
+  /**
+   * A cache of all local objects in the file, i.e. objects native to the file, not from a library.
+   */
+  objects: ObjectCache
+  /**
+   * A cache of all foreign objects in the file, i.e. objects or children of objects from libraries.
+   */
+  foreignObjects: ObjectCache
+  /**
+   * A map of file object references to JSON Pointer strings.
+   */
+  pointers: PointerMap
+  /**
+   * The SketchFile that was processed.
+   */
   file: SketchFile
 }
 
@@ -144,11 +150,65 @@ export type ProcessedSketchFile = {
  * (like cache creation, rule invocation etc.) should exit early as soon as a
  * cancellation is detected.
  */
-export type RunOperation =
-  | {
-      cancelled: boolean
-    }
-  | { cancelled: 1 | 0 }
+export type RunOperation = { cancelled: boolean } | { cancelled: 1 | 0 }
+
+/**
+ * A map of Assistant packages, keyed by name.
+ */
+export type AssistantPackageMap = { [assistantName: string]: unknown }
+
+/**
+ * Input required for running a group of multiple Assistant packages
+ * against a single Sketch file.
+ */
+export type RunInput = {
+  /**
+   * The Assistants to run.
+   */
+  assistants: AssistantPackageMap
+  /**
+   * Processed Sketch file to run the Assistants against.
+   */
+  processedFile: ProcessedSketchFile
+  /**
+   * GetImageMetadata implmentation.
+   */
+  getImageMetadata: GetImageMetadata
+  /**
+   * Object from the external environment carrying the cancelled flag.
+   */
+  operation: RunOperation
+  /**
+   * Environment.
+   */
+  env: AssistantEnv
+}
+
+/**
+ * The output from running a group of Assistants. Results are grouped by Assistant
+ * name, and indicate either success or error.
+ */
+export type RunOutput = {
+  [assistantName: string]:
+    | { code: 'error'; result: AssistantErrorResult }
+    | { code: 'success'; result: AssistantSuccessResult }
+}
+
+/**
+ * The run has failed to the extent that collating a RunOutput object is not
+ * possible, and the runner function promise rejects instead.
+ */
+export type RunRejection = {
+  /**
+   * Human readable message describing the rejection.
+   */
+  message: string
+  /**
+   * runError: Something unexpected has gone badly wrong.
+   * cancelled: Run cancelled via cancellation signal from outside.
+   */
+  code: 'runError' | 'cancelled'
+}
 
 /**
  * JavaScript errors encountered during rule invocation normalised into plain objects.
@@ -161,17 +221,30 @@ export type PlainRuleError = {
 }
 
 /**
- * The result of running an assistant.
+ * The result of running a single Assistant that errored and did not complete.
  */
-export type AssistantResult = {
+export type AssistantErrorResult = {
+  message: string
+}
+
+/**
+ * The result of successfully running a single assistant to completion. Note that
+ * even if the Assistant encounters some rules that crash and produce `ruleErrors` then that
+ * doesn't invalidate the whole result.
+ */
+export type AssistantSuccessResult = {
+  /**
+   * The Assistant "passed" if there are no ViolationSeverity.error level violations present.
+   */
+  passed: boolean
   /**
    * One or more `violations` implies the assistant’s rules found issues with the Sketch document.
    */
   violations: Violation[]
   /**
-   * One or more `errors` implies that some rules didn’t run because they encountered errors.
+   * One or more `ruleErrors` implies that some rules didn’t run because they encountered errors.
    */
-  errors: PlainRuleError[]
+  ruleErrors: PlainRuleError[]
   /**
    * Metadata relating to the Assistant that produced the result, and the rules that were invoked.
    */
@@ -186,11 +259,15 @@ export type AssistantResult = {
         title: string
         description: string
         debug: boolean
-        platform: Platform
+        runtime?: AssistantRuntime
       }
     }
   }
 }
+
+//
+// Rule context
+//
 
 /**
  * Contains all the values and utils exposed to individual rule functions.
@@ -210,15 +287,6 @@ export type RuleContext = {
 export type RuleUtilsCreator = (ruleName: string) => RuleUtils
 
 /**
- * A function that when invoked repeatedly calls its callback for each of a Node’s parents
- * until it reaches the document root, at which point it stops.
- */
-export type ParentIterator = (
-  node: Maybe<PointerValue>,
-  callback: (target: Node | NodeArray | Node<FileFormat3.Contents['document']>) => void,
-) => void
-
-/**
  * Object containing utilities passed into rule functions. Where needed the util functions are
  * scoped to the current rule, e.g. `report` reports a violation for the current rule and
  * `getOption` retrieves an option value for the current rule etc.
@@ -229,26 +297,24 @@ export type RuleUtils = {
    */
   report: (report: ReportItem | ReportItem[]) => void
   /**
-   * Iterate the Sketch file object cache.
+   * Contains an iterator for each type of object in the Sketch file.
    */
-  iterateCache: (config: NodeCacheIteratorConfig) => Promise<void>
+  objects: IterableObjectCache
   /**
-   * Iterate back through the Node’s parents to the Sketch file root.
+   * Contains an iterator for each type of object in the Sketch file, filtered so it contains _only_
+   * foreign objects, that is, objects that have been imported from a library.
    */
-  iterateParents: ParentIterator
+  foreignObjects: IterableObjectCache
   /**
-   * Get a rule option value by name. Throws if the rule hasn’t been configured in the assistant.
-   * It’s essential that every rule activated in an assistant is properly configured.
+   * Get a rule option value by name. Should throw if the rule hasn’t been configured properly in
+   * the current assistant context, since it’s essential that every rule activated in an assistant is
+   * fully configured.
    */
-  getOption: (option: string) => Maybe<RuleOption>
+  getOption: <T = unknown>(option: string) => T
   /**
    * Returns metadata for a given Sketch file image.
    */
   getImageMetadata: (ref: string) => Promise<ImageMetadata>
-  /**
-   * Converts a Node to the original file format type.
-   */
-  nodeToObject: <T extends FileFormat3.AnyObject>(node: Node) => T
   /**
    * Return the md5 hash of an object. Keys are deeply sorted for a stable hash.
    * Useful for comparing deep similarity of Sketch document objects. By default
@@ -261,13 +327,21 @@ export type RuleUtils = {
    */
   objectsEqual: (o1: {}, o2: {}, excludeKeys?: string[]) => boolean
   /**
-   * Resolve a JSON Pointer to a document object.
+   * Resolve a JSON Pointer string to the value in the Sketch file it points to.
    */
-  get: (pointer: string) => Maybe<PointerValue>
+  evalPointer: (pointer: JsonPointer) => unknown
   /**
-   * Resolve a JSON Pointer to a document object’s parent.
+   * Determine the JSON Pointer for a given object in a Sketch file.
    */
-  parent: (pointer: string) => Maybe<PointerValue>
+  getObjectPointer: (object: SketchFileObject) => JsonPointer | undefined
+  /**
+   * Returns the immediate parent object of a Sketch file object.
+   */
+  getObjectParent: (object: SketchFileObject) => unknown
+  /**
+   * Returns an array of parent objects for a given Sketch file object, all the way to the root.
+   */
+  getObjectParents: (object: SketchFileObject) => unknown[]
   /**
    * Compares two style objects for equality.
    */
@@ -291,7 +365,7 @@ export type RuleUtils = {
  */
 export type ReportItem = {
   message: string
-  node?: Node
+  object?: SketchFileObject
 }
 
 /**
@@ -305,6 +379,7 @@ export type Violation = {
   severity: ViolationSeverity
   pointer: string | null
   objectId: string | null
+  objectName: string | null
 }
 
 /**
@@ -317,7 +392,7 @@ export enum ViolationSeverity {
 }
 
 //
-// Assistants
+// Assistant definition
 //
 
 /**
@@ -371,7 +446,7 @@ export type AssistantPackageJson = PackageJson &
        */
       description: string
       /**
-       * Assistant icon/image for display in Sketch. Should be a fully qualified uri to a publically
+       * Assistant icon/image for display in Sketch. Should be a fully qualified uri to a publicly
        * hosted image file.
        */
       icon: string
@@ -391,9 +466,13 @@ export type AssistantPackageJson = PackageJson &
   }>
 
 /**
- * Platforms that can run Assistants.
+ * Assistants can run within Node, or the JavaScriptCore runtime provided by Sketch. This type
+ * enumerates the two possibilities.
  */
-export type Platform = 'sketch' | 'node'
+export enum AssistantRuntime {
+  Sketch = 'Sketch',
+  Node = 'Node',
+}
 
 /**
  * Ambient environmental information for assistants, typically provided by an outer assistant runner.
@@ -402,14 +481,14 @@ export type AssistantEnv = {
   /**
    * Language tag indicating the current user’s locale. Use this to optionally internationalize your
    * assistant’s content. Its exact value is not guaranteed, so an appropriate fallback locale should
-   * always be used for unrecognised values. For assistants running in Sketch it’s value is likely
+   * always be used for unrecognized values. For assistants running in Sketch it’s value is likely
    * to be either `en` or `zh-Hans`.
    */
   locale: string | undefined
   /**
-   * Indicates whether the assistant is running in either a Node or Sketch (JavaScriptCore) environment
+   * Indicates whether the assistant is running in Node or Sketch.
    */
-  platform: Platform
+  runtime: AssistantRuntime
 }
 
 /**
@@ -421,13 +500,10 @@ export type AssistantEnv = {
 export type Assistant = (env: AssistantEnv) => Promise<AssistantDefinition>
 
 /**
- * Defines the expected type definition for the export from a 1st or 3rd party assistant package. It
- * allows an assistant to be expressed as either a single assistant or an array of assistants that
- * should be merged before a run operation. Via type recursion arbitrarily nested arrays of
- * assistant functions are supported to allow for incorporation of other assistant packages into
- * the final export.
+ * Defines the expected type for the default export from an assistant package entrypoint. It allows
+ * an assistant to be expressed as either a single assistant or an array of assistants that should be extended and merged before a run operation.
  */
-export type AssistantPackageExport = MaybeESModule<ValueOrArray<MaybeESModule<Assistant>>>
+export type AssistantPackage = ValueOrArray<Assistant>
 
 /**
  * Concrete assistant definition that can be invoked against a Sketch file during a lint run.
@@ -462,7 +538,7 @@ export type RuleDefinition = {
   name: string
   /**
    * Human readable title for the rule. Can either be a string e.g. "Groups should not be empty", or
-   * a function that returns a string, whicg enables the title to interpolate configuration values
+   * a function that returns a string, which enables the title to interpolate configuration values
    * e.g. "Maximum height is 44px".
    */
   title: string | ((ruleConfig: RuleConfig) => string)
@@ -480,9 +556,9 @@ export type RuleDefinition = {
    */
   debug?: boolean
   /**
-   * Indicates rule platform compatibility. For cross-platform rules this property can be omitted.
+   * Indicates rule compatibility. For cross-platform rules this property can be omitted.
    */
-  platform?: Platform
+  runtime?: AssistantRuntime
 }
 
 /**

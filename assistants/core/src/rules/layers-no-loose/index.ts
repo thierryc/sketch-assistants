@@ -1,25 +1,24 @@
 import { t } from '@lingui/macro'
-import { RuleContext, RuleFunction, FileFormat } from '@sketch-hq/sketch-assistant-types'
+import { RuleContext, RuleFunction, FileFormat, Unarray } from '@sketch-hq/sketch-assistant-types'
 
 import { CreateRuleFunction } from '../..'
 
-const isLooseLayer = (layer: FileFormat.AnyLayer) =>
+const isLooseLayer = (layer: Unarray<FileFormat.Page['layers']>) =>
   layer._class !== 'artboard' && layer._class !== 'symbolMaster'
 
 export const createRule: CreateRuleFunction = (i18n) => {
   const rule: RuleFunction = async (context: RuleContext): Promise<void> => {
     const { utils } = context
-    await utils.iterateCache({
-      async page(node): Promise<void> {
-        const page = utils.nodeToObject<FileFormat.Page>(node)
-        if (page.layers.some(isLooseLayer)) {
+    for (const page of utils.objects.page) {
+      for (const layer of page.layers) {
+        if (isLooseLayer(layer)) {
           utils.report({
-            node,
+            object: layer,
             message: i18n._(t`This layer is not inside an Artboard`),
           })
         }
-      },
-    })
+      }
+    }
   }
 
   return {

@@ -1,4 +1,4 @@
-import type { AssistantConfig, AssistantPackageExport } from '@sketch-hq/sketch-assistant-types'
+import type { AssistantConfig, AssistantPackage } from '@sketch-hq/sketch-assistant-types'
 import CoreAssistant from '@sketch-hq/sketch-core-assistant'
 
 export const config: AssistantConfig = {
@@ -41,16 +41,13 @@ export const config: AssistantConfig = {
     '@sketch-hq/sketch-core-assistant/shared-styles-no-unused': {
       active: true,
     },
-    '@sketch-hq/sketch-core-assistant/symbols-no-unused': {
-      active: true,
-    },
     '@sketch-hq/sketch-core-assistant/layers-no-loose': {
       active: true,
     },
   },
 }
 
-const assistant: AssistantPackageExport = [
+const assistant: AssistantPackage = [
   CoreAssistant,
   async () => {
     return {

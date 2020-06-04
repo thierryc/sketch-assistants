@@ -7,14 +7,14 @@ import { config } from '..'
 
 const testCoreRuleWithConfig = async (fixture: string, ruleId: string, numViolations = 1) => {
   const ruleName = `@sketch-hq/sketch-core-assistant/${ruleId}`
-  const { violations, errors } = await testRule(
+  const { violations, ruleErrors } = await testRule(
     resolve(__dirname, fixture),
     Assistant,
     ruleName,
     config.rules[ruleName] as RuleConfig,
   )
   expect(violations).toHaveLength(numViolations)
-  expect(errors).toHaveLength(0)
+  expect(ruleErrors).toHaveLength(0)
 }
 
 test('borders-no-disabled', async () => {
@@ -67,8 +67,4 @@ test('layers-no-loose', async () => {
 
 test('shared-styles-no-unused', async () => {
   await testCoreRuleWithConfig('./unused-shared-style.sketch', 'shared-styles-no-unused')
-})
-
-test('symbols-no-unused', async () => {
-  await testCoreRuleWithConfig('./unused-symbol.sketch', 'symbols-no-unused')
 })

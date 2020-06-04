@@ -9,38 +9,46 @@ const isBlended = (
   return !!styles.find((item) => item.contextSettings.blendMode !== FileFormat.BlendMode.Normal)
 }
 
+const NON_BMP_FORMATS = [
+  FileFormat.ExportFileFormat.EPS,
+  FileFormat.ExportFileFormat.PDF,
+  FileFormat.ExportFileFormat.SVG,
+]
+
 export const createRule: CreateRuleFunction = (i18n) => {
   const rule: RuleFunction = async (context: RuleContext): Promise<void> => {
     const { utils } = context
-    await utils.iterateCache({
-      async $layers(node): Promise<void> {
-        const layer = utils.nodeToObject<FileFormat.AnyLayer>(node)
-        if (layer._class === 'artboard' || layer._class === 'page') return
-        if (layer.exportOptions.exportFormats.length === 0) return
-        if (layer.style?.contextSettings?.blendMode !== FileFormat.BlendMode.Normal) {
-          utils.report({
-            node,
-            message: i18n._(
-              t`Blend mode found on exported layer, consider flattening the blend mode for consistent export results.`,
-            ),
-          })
-          return
-        }
-        if (
-          isBlended(layer.style?.fills) ||
-          isBlended(layer.style?.borders) ||
-          isBlended(layer.style?.shadows) ||
-          isBlended(layer.style?.innerShadows)
-        ) {
-          utils.report({
-            node,
-            message: i18n._(
-              t`Blend mode found on exported layer, consider flattening the blend modes for consistent export results.`,
-            ),
-          })
-        }
-      },
-    })
+    for (const layer of utils.objects.anyLayer) {
+      if (layer._class === 'artboard' || layer._class === 'page') continue // Skip for artboards and page layers
+      const { exportFormats } = layer.exportOptions
+      if (exportFormats.length === 0) continue // Skip if layer not exported
+      const fileFormats = exportFormats.reduce<FileFormat.ExportFileFormat[]>((acc, exportForm) => {
+        return [...acc, exportForm.fileFormat]
+      }, [])
+      if (fileFormats.filter((fmt) => NON_BMP_FORMATS.includes(fmt)).length === 0) continue // If layer is only exported as bitmap formats then skip
+      if (layer.style?.contextSettings?.blendMode !== FileFormat.BlendMode.Normal) {
+        utils.report({
+          object: layer,
+          message: i18n._(
+            t`Blend mode found on exported layer, consider flattening the blend mode for consistent export results.`,
+          ),
+        })
+        continue
+      }
+      if (
+        isBlended(layer.style?.fills) ||
+        isBlended(layer.style?.borders) ||
+        isBlended(layer.style?.shadows) ||
+        isBlended(layer.style?.innerShadows)
+      ) {
+        utils.report({
+          object: layer,
+          message: i18n._(
+            t`Blend mode found on exported layer, consider flattening the blend modes for consistent export results.`,
+          ),
+        })
+      }
+    }
   }
 
   return {
