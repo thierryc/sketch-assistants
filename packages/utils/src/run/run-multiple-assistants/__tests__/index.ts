@@ -12,7 +12,7 @@ import { runMultipleAssistants } from '..'
 import { createAssistant, createRule, createAssistantConfig } from '../../../test-helpers'
 import { getImageMetadata as getImageMetadataNode } from '../../../get-image-metadata'
 import { process } from '../../../process'
-import { fromFile } from '../../../from-file'
+import { fromFile } from '../../../files'
 
 /**
  * Test helper.
@@ -23,6 +23,7 @@ const testRunMultiple = async (
     operation = { cancelled: false },
     getImageMetadata = getImageMetadataNode,
     env = { locale: 'en', runtime: AssistantRuntime.Node },
+    ignore = { pages: [], assistants: {} },
   }: Partial<RunInput>,
   filename = './empty.sketch',
 ): Promise<RunOutput> => {
@@ -34,6 +35,7 @@ const testRunMultiple = async (
     operation,
     getImageMetadata,
     env,
+    ignore,
   })
 }
 
@@ -48,7 +50,7 @@ test('outputs an error result for a malformed assistant package', async (): Prom
       foo: {},
     },
   })
-  await expect(promise).resolves.toHaveProperty('foo.code', 'error')
+  await expect(promise).resolves.toHaveProperty('assistants.foo.code', 'error')
 })
 
 test('outputs an error result for assistant name mismatch', async (): Promise<void> => {
@@ -57,7 +59,7 @@ test('outputs an error result for assistant name mismatch', async (): Promise<vo
       foo: createAssistant({ name: 'bar' }),
     },
   })
-  await expect(promise).resolves.toHaveProperty('foo.code', 'error')
+  await expect(promise).resolves.toHaveProperty('assistants.foo.code', 'error')
 })
 
 test('bails early if cancelled', async (): Promise<void> => {
@@ -87,9 +89,8 @@ test('works with assistants exported as ESM defaults', async (): Promise<void> =
       ],
     },
   }
-  const res = await testRunMultiple({ assistants })
-  expect(res['assistant-2'].code).toBe('success')
-  expect(res['assistant-2'].code).toBe('success')
+  const output = await testRunMultiple({ assistants })
+  expect(output.assistants['assistant-2'].code).toBe('success')
 })
 
 test('can generate violations', async (): Promise<void> => {
@@ -111,7 +112,8 @@ test('can generate violations', async (): Promise<void> => {
     }),
   }
 
-  const { 'dummy-assistant': res } = await testRunMultiple({ assistants })
+  const output = await testRunMultiple({ assistants })
+  const res = output.assistants['dummy-assistant']
 
   expect.assertions(3)
   expect(res).toHaveProperty('code', 'success')
@@ -140,7 +142,8 @@ test('will pass an assistant if violations not error-level', async (): Promise<v
     }),
   }
 
-  const { 'dummy-assistant': res } = await testRunMultiple({ assistants })
+  const output = await testRunMultiple({ assistants })
+  const res = output.assistants['dummy-assistant']
 
   expect.assertions(3)
   expect(res).toHaveProperty('code', 'success')
@@ -169,7 +172,51 @@ test('can generate rule errors', async (): Promise<void> => {
     }),
   }
 
-  const { 'dummy-assistant': res } = await testRunMultiple({ assistants })
+  const output = await testRunMultiple({ assistants })
+  const res = output.assistants['dummy-assistant']
+
+  expect.assertions(2)
+  if (res.code === 'success') {
+    expect(res.result.violations).toHaveLength(0)
+    expect(res.result.ruleErrors).toHaveLength(1)
+  }
+})
+
+test('generates rule errors when ignored objects are reported', async (): Promise<void> => {
+  const assistants = {
+    'dummy-assistant': createAssistant({
+      rules: [
+        createRule({
+          name: 'rule',
+          rule: async (context) => {
+            context.utils.report({
+              object: context.file.file.contents.document.pages[0],
+              message: '',
+            })
+          },
+        }),
+      ],
+      config: createAssistantConfig({
+        rules: {
+          rule: { active: true },
+        },
+      }),
+    }),
+  }
+
+  const output = await testRunMultiple({
+    assistants,
+    ignore: {
+      pages: [],
+      assistants: {
+        'dummy-assistant': {
+          rules: { rule: { objects: ['9AD22B94-A05B-4F49-8EDD-A38D62BD6181'] } },
+        },
+      },
+    },
+  })
+  const res = output.assistants['dummy-assistant']
+
   expect.assertions(2)
   if (res.code === 'success') {
     expect(res.result.violations).toHaveLength(0)
@@ -212,10 +259,10 @@ test('can run mulitple assistants', async (): Promise<void> => {
       }),
     }),
   }
+  const output = await testRunMultiple({ assistants })
+  const res1 = output.assistants['dummy-assistant-1']
+  const res2 = output.assistants['dummy-assistant-2']
 
-  const { 'dummy-assistant-1': res1, 'dummy-assistant-2': res2 } = await testRunMultiple({
-    assistants,
-  })
   expect.assertions(4)
   if (res1.code === 'success') {
     expect(res1.result.violations).toHaveLength(1)
@@ -251,18 +298,71 @@ test('can be internationalized', async (): Promise<void> => {
     'dummy-assistant': assistant,
   }
 
-  const { 'dummy-assistant': zhRes } = await testRunMultiple({
+  const zhOutput = await testRunMultiple({
     assistants,
     env: { runtime: AssistantRuntime.Node, locale: 'zh-Hans' },
   })
-  const { 'dummy-assistant': enRes } = await testRunMultiple({
+  const zhRes = zhOutput.assistants['dummy-assistant']
+
+  const enOutput = await testRunMultiple({
     assistants,
     env: { runtime: AssistantRuntime.Node, locale: 'en' },
   })
+  const enRes = enOutput.assistants['dummy-assistant']
 
   expect.assertions(2)
   if (zhRes.code === 'success' && enRes.code === 'success') {
     expect(zhRes.result.violations[0].message).toBe('世界你好')
     expect(enRes.result.violations[0].message).toBe('Hello world')
+  }
+})
+
+test('prunes missing assistants from ignore data', async (): Promise<void> => {
+  const { ignore } = await testRunMultiple({
+    ignore: {
+      pages: [],
+      assistants: { 'missing-assistant': { rules: {} }, 'dummy-assistant': { rules: {} } },
+    },
+  })
+  expect(ignore.assistants).not.toHaveProperty('missing-assistant')
+  expect(ignore.assistants).toHaveProperty('dummy-assistant')
+})
+
+test('prunes missing rules from ignore data', async (): Promise<void> => {
+  const { ignore } = await testRunMultiple({
+    assistants: {
+      'dummy-assistant': createAssistant({ rules: [createRule({ name: 'rule' })] }),
+    },
+    ignore: {
+      pages: [],
+      assistants: {
+        'dummy-assistant': { rules: { rule: { allObjects: true }, missing: { allObjects: true } } },
+      },
+    },
+  })
+  expect(ignore.assistants['dummy-assistant'].rules).toHaveProperty('rule')
+  expect(ignore.assistants['dummy-assistant'].rules).not.toHaveProperty('missing')
+})
+
+test('prunes missing objects from ignore data', async (): Promise<void> => {
+  const { ignore } = await testRunMultiple({
+    assistants: {
+      'dummy-assistant': createAssistant({ rules: [createRule({ name: 'rule' })] }),
+    },
+    ignore: {
+      pages: [],
+      assistants: {
+        'dummy-assistant': {
+          rules: { rule: { objects: ['9AD22B94-A05B-4F49-8EDD-A38D62BD6181', 'missing-id'] } },
+        },
+      },
+    },
+  })
+  expect.assertions(2)
+  if ('objects' in ignore.assistants['dummy-assistant'].rules.rule) {
+    expect(ignore.assistants['dummy-assistant'].rules.rule.objects).toContain(
+      '9AD22B94-A05B-4F49-8EDD-A38D62BD6181',
+    )
+    expect(ignore.assistants['dummy-assistant'].rules.rule.objects).not.toContain('missing-id')
   }
 })

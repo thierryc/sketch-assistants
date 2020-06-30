@@ -9,17 +9,39 @@ Assistants passed in on the command line.
 
 ## Installation
 
-Until this package is published to npm the only way to invoke it is by building it from source and
-invoking it directly.
+### Global
 
-In this folder:
-
+```sh
+npm i -g @sketch-hq/sketch-assistant-cli
 ```
+
+Or,
+
+```sh
+yarn global add @sketch-hq/sketch-assistant-cli
+```
+
+The `sketch-assistants` command will then be available. See below for usage instructions.
+
+### Local
+
+Alternatively the CLI will work when installed locally to a project too.
+
+```sh
+yarn add @sketch-hq/sketch-assistant-cli
+```
+
+The `sketch-assistants` command will then be available to use in your `package.json` scripts.
+
+## Local development
+
+Setup the monorepo according to the [Getting Started](../../README.md#getting-started) instructions,
+and then in this folder:
+
+```sh
 yarn build
 ./bin/cli.js <args>
 ```
-
-TODO: Update this section once this package is published to npm.
 
 ## Usage
 
@@ -55,6 +77,10 @@ sketch-assistants --json "./path/to/file.sketch"
 
 When Assistants are installed before a run, they are cached in a temporary folder to make future
 runs faster. Pass this flag to delete the cache folder.
+
+#### `--profile`
+
+Output statistics instead of results.
 
 #### `--workspace`
 

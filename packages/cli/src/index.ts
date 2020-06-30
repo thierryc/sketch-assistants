@@ -13,15 +13,19 @@ import {
   runMultipleAssistants,
   getImageMetadata,
   process as processFile,
+  makeProfile,
+  filterPages,
+  prunePages,
 } from '@sketch-hq/sketch-assistant-utils'
 import {
-  FileFormat,
   AssistantRuntime,
   RunOutput,
   AssistantPackageMap,
   ViolationSeverity,
   SketchFile,
   AssistantConfig,
+  RunOutputProfile,
+  Workspace,
 } from '@sketch-hq/sketch-assistant-types'
 import crypto from 'crypto'
 import osLocale from 'os-locale'
@@ -54,6 +58,10 @@ const helpText = `
       When Assistants are installed before a run, they are cached in a temporary
       folder to make future runs faster. Pass this flag to delete the cache
       folder.
+    
+    --profile
+
+      Output statistics instead of results.
 
     --workspace
 
@@ -120,17 +128,17 @@ type CliResults = Array<
 >
 
 /**
- * Type alias to the Assistant workspace shape. This defines the shape of the
- * JSON optionally passed in via the `--workspace` option.
+ * Profile output from the CLI.
  */
-type Workspace = FileFormat.AssistantsWorkspace
+type CliProfile = {
+  [filePath: string]: RunOutputProfile | string
+}
 
 /**
  * Describe a custom Assistant using JSON. This defines the shape of the JSON
  * optionally passed in via the `--assistant` option.
  */
 type WorkspaceWithAssistant = Workspace & {
-  name: string
   assistant: {
     extends: string[]
     config?: AssistantConfig
@@ -147,10 +155,6 @@ const cli = meow(helpText, {
       type: 'boolean',
       default: false,
     },
-    config: {
-      type: 'string',
-      default: '',
-    },
     workspace: {
       type: 'string',
       default: '',
@@ -158,6 +162,10 @@ const cli = meow(helpText, {
     assistant: {
       type: 'string',
       default: '',
+    },
+    profile: {
+      type: 'boolean',
+      default: false,
     },
   },
 })
@@ -196,7 +204,7 @@ const spinnerMessage = (filename: string, message: string) =>
  * their actual package export values.
  */
 const requireAssistants = (dir: string, workspace: Workspace): AssistantPackageMap =>
-  Object.keys(workspace.dependencies).reduce<AssistantPackageMap>(
+  Object.keys(workspace.dependencies || {}).reduce<AssistantPackageMap>(
     (assistantGroup, pkgName) => ({
       [pkgName]: require(`${dir}/node_modules/${pkgName}`),
       ...assistantGroup,
@@ -233,8 +241,6 @@ const makeAssistant = async (
 ): Promise<AssistantPackageMap> => {
   const assistants = await requireAssistants(dir, workspace)
   const assistantName = `custom/${workspace.name}`
-  // @ts-ignore TODO: This code is working, but there's a type error, presumably caused by
-  // the complexity of the AssistantPackageExport type.
   return {
     [assistantName]: [
       ...workspace.assistant.extends.map((assistantName) => assistants[assistantName]),
@@ -246,6 +252,15 @@ const makeAssistant = async (
     ],
   }
 }
+
+const makeCliProfile = (cliResults: CliResults): CliProfile =>
+  cliResults.reduce(
+    (acc, result) => ({
+      ...acc,
+      [result.filepath]: result.code === 'error' ? result.message : makeProfile(result.output),
+    }),
+    {},
+  )
 
 /**
  * Format results as a human readable string.
@@ -272,9 +287,9 @@ const formatResults = (cliResults: CliResults): string => {
       append(2, chalk.red(cliResult.message))
       continue
     }
-    for (const [name, res] of Object.entries(cliResult.output)) {
+    for (const [name, res] of Object.entries(cliResult.output.assistants)) {
       if (res.code === 'error') {
-        append(2, `${name}: ${chalk.red(res.result.message)}`)
+        append(2, `${name}: ${chalk.red(res.error.message)}`)
         continue
       }
       append(2, `${chalk.inverse(` ${name} `)}\n`)
@@ -331,23 +346,32 @@ const runFile = async (filepath: string, tmpDir: string): Promise<RunOutput> => 
   const filename = basename(filepath)
 
   const spinner = ora({
-    stream: cli.flags.json ? fs.createWriteStream('/dev/null') : process.stdout,
+    stream:
+      cli.flags.json || cli.flags.profile ? fs.createWriteStream('/dev/null') : process.stdout,
   })
 
   spinner.start(spinnerMessage(filename, ''))
   spinner.start(spinnerMessage(filename, 'Processing file…'))
 
   try {
-    const file = await fromFile(filepath)
     const operation = { cancelled: false }
+    let file = await fromFile(filepath)
+    const workspace = await getWorkspace(file)
+    let { ignore = { pages: [], assistants: {} } } = workspace
+
+    ignore = prunePages(ignore, file)
+    file = filterPages(file, ignore.pages)
+
     const processedFile = await processFile(file, operation)
     const env = {
       runtime: AssistantRuntime.Node,
       locale: await osLocale(),
     }
 
-    const workspace = await getWorkspace(file)
-    const workspaceHash = crypto.createHash('md5').update(JSON.stringify(workspace)).digest('hex')
+    const workspaceHash = crypto
+      .createHash('md5')
+      .update(JSON.stringify(workspace.dependencies || {}))
+      .digest('hex')
     const dir = resolve(`${tmpDir}`, workspaceHash)
 
     spinner.start(spinnerMessage(filename, 'Installing workspace…'))
@@ -363,6 +387,7 @@ const runFile = async (filepath: string, tmpDir: string): Promise<RunOutput> => 
     spinner.start(spinnerMessage(filename, 'Running Assistants…'))
 
     const output = await runMultipleAssistants({
+      ignore,
       assistants,
       processedFile,
       getImageMetadata,
@@ -424,6 +449,8 @@ const main = async () => {
 
   if (cli.flags.json) {
     console.log(JSON.stringify(results, null, 2))
+  } else if (cli.flags.profile) {
+    console.log(JSON.stringify(makeCliProfile(results), null, 2))
   } else {
     console.log(formatResults(results))
   }

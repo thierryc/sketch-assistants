@@ -9,10 +9,12 @@ import {
   GetImageMetadata,
   AssistantSuccessResult,
   ViolationSeverity,
+  IgnoreConfig,
 } from '@sketch-hq/sketch-assistant-types'
 
 import { createRuleUtilsCreator } from '../../rule-utils'
 import { isRuleActive, getRuleConfig, getRuleTitle } from '../../assistant-config'
+import { isRuleFullIgnored } from '../ignore'
 
 /**
  * Given a set of violations, determine if they represent a "pass" or a "fail".
@@ -50,6 +52,7 @@ const runAssistant = async (
   env: AssistantEnv,
   operation: RunOperation,
   getImageMetadata: GetImageMetadata,
+  ignoreConfig: IgnoreConfig,
 ): Promise<AssistantSuccessResult> => {
   const violations: Violation[] = []
 
@@ -59,6 +62,7 @@ const runAssistant = async (
     assistant,
     operation,
     getImageMetadata,
+    ignoreConfig,
   )
 
   const context = {
@@ -72,6 +76,10 @@ const runAssistant = async (
   const activeRules = assistant.rules
     .filter((rule) => isRuleActive(assistant.config, rule.name)) // Rule turned on in config
     .filter((rule) => (rule.runtime ? rule.runtime === env.runtime : true)) // Rule platform is supported
+
+  const profile: AssistantSuccessResult['profile'] = {
+    ruleTimings: {},
+  }
 
   const metadata: AssistantSuccessResult['metadata'] = {
     assistant: {
@@ -106,9 +114,14 @@ const runAssistant = async (
     }, {}),
   }
 
+  // Filter out ignored rules to find the final set of rules to invoke
+  const rulesToRun = activeRules.filter(
+    (rule) => !isRuleFullIgnored(ignoreConfig, assistant.name, rule.name),
+  )
+
   try {
     await pMap(
-      activeRules,
+      rulesToRun,
       async (rule): Promise<void> => {
         if (operation.cancelled) return
         const { rule: ruleFunction, name: ruleName } = rule
@@ -116,11 +129,13 @@ const runAssistant = async (
           ...context,
           utils: createUtils(ruleName),
         }
+        const start = Date.now()
         try {
           await ruleFunction(ruleContext)
         } catch (error) {
           throw new RuleInvocationError(error, assistant.name, ruleName)
         }
+        profile.ruleTimings[ruleName] = Date.now() - start
       },
       { concurrency: 1, stopOnError: false },
     )
@@ -135,6 +150,7 @@ const runAssistant = async (
         stack: error.cause.stack || '',
       })),
       metadata,
+      profile,
     }
   }
   return {
@@ -142,6 +158,7 @@ const runAssistant = async (
     violations,
     ruleErrors: [],
     metadata,
+    profile,
   }
 }
 

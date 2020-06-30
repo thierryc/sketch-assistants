@@ -1,6 +1,6 @@
 {
   "name": "@sketch-hq/sketch-assistant-types",
-  "version": "5.0.0-next.11",
+  "version": "5.0.0",
   "main": "dist/types",
   "types": "dist/types",
   "sideEffects": false,
@@ -20,7 +20,7 @@
   "files": ["dist"],
   "dependencies": {
     "@schemastore/package": "0.0.5",
-    "@sketch-hq/sketch-file-format-ts": "5.0.0",
+    "@sketch-hq/sketch-file-format-ts": "5.1.1",
     "@types/json-schema": "7.0.4"
   }
 }

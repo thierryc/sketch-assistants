@@ -94,7 +94,12 @@ export type SketchFileObject = FileFormat3.AnyObject | DocumentObject
 /**
  * Look-up a pointer value using a Sketch file object reference.
  */
-export type PointerMap = WeakMap<SketchFileObject, JsonPointer>
+export type PointerMap = Map<SketchFileObject, JsonPointer>
+
+/**
+ * A record of all object ids found in the file.
+ */
+export type ObjectIdSet = Set<string>
 
 /**
  * A cache of Sketch file objects. Each key is a `_class` value from the file
@@ -135,14 +140,61 @@ export type ProcessedSketchFile = {
    */
   pointers: PointerMap
   /**
+   * A set of all object ids found in the file.
+   */
+  objectIds: ObjectIdSet
+  /**
    * The SketchFile that was processed.
    */
   file: SketchFile
+  /**
+   * Statistics about the processed file.
+   */
+  profile: {
+    /**
+     * Number of Sketch objetcs in the file.
+     */
+    numObjects: number
+    /**
+     * Time taken for processing in milliseconds.
+     */
+    time: number
+  }
 }
 
 //
 // Assistant running
 //
+
+/**
+ * The expected shape of the Sketch file workspace used with Assistants. This is
+ * where Sketch persists a file's Assistants configuration. First and foremost
+ * it's a valid package.json, with the dependencies specifying the active
+ * Assistants - every dependency is expected to be a package exporting a valid
+ * Assistant on its default export. It additionally persists what's being
+ * ignored during the Assistant runs.
+ */
+export type Workspace = PackageJson & { ignore?: IgnoreConfig }
+
+/**
+ * Information about what to ignore during an Assistant run. Pages can be
+ * ignored entirely, whereas Assistant rules can either be ignored entirely too,
+ * or only ignored for certain file objects.
+ */
+export type IgnoreConfig = {
+  pages: string[]
+  assistants: {
+    [assistantName: string]: {
+      rules: {
+        [ruleName: string]:
+          | { allObjects: true } // Rule full ignored
+          | { allObjects: true; objects: [] } // Rule still full ignored, listed objects may be present in the config but they wont affect the run
+          | { objects: [] } // Rule part ignored for listed objects
+          | {} // Rule not ignored
+      }
+    }
+  }
+}
 
 /**
  * Contains a flag indicating whether the run operation has been cancelled by
@@ -153,7 +205,9 @@ export type ProcessedSketchFile = {
 export type RunOperation = { cancelled: boolean } | { cancelled: 1 | 0 }
 
 /**
- * A map of Assistant packages, keyed by name.
+ * A map of Assistant packages, keyed by Assistant package name. Since the
+ * package map is often supplied externally, by an outer layer (e.g. by Sketch
+ * to the Assistant runner) we type the packages as unknown.
  */
 export type AssistantPackageMap = { [assistantName: string]: unknown }
 
@@ -166,6 +220,10 @@ export type RunInput = {
    * The Assistants to run.
    */
   assistants: AssistantPackageMap
+  /**
+   * What to ignore during the run.
+   */
+  ignore: IgnoreConfig
   /**
    * Processed Sketch file to run the Assistants against.
    */
@@ -189,9 +247,50 @@ export type RunInput = {
  * name, and indicate either success or error.
  */
 export type RunOutput = {
-  [assistantName: string]:
-    | { code: 'error'; result: AssistantErrorResult }
-    | { code: 'success'; result: AssistantSuccessResult }
+  /**
+   * Mirror input in the output, for easier processing of results.
+   */
+  input: RunInput
+  /**
+   * Ignore directives are pruned during the run to remove orphaned data
+   * (non-existant pages, assistants, rules and objects), and returned in the
+   * output.
+   */
+  ignore: IgnoreConfig
+  /**
+   * Results per Assistant.
+   * "error": The Assistant run failed entirely.
+   * "success": One or more rules ran successfully.
+   */
+  assistants: {
+    [assistantName: string]:
+      | { code: 'error'; error: AssistantErrorResult }
+      | { code: 'success'; result: AssistantSuccessResult }
+  }
+}
+
+/**
+ * Profiling statistics about a run.
+ */
+export type RunOutputProfile = {
+  file: {
+    time: number
+    totalObjects: number
+    objectCounts: { [key: string]: { count: number } }
+  }
+  assistants: {
+    [assistantName: string]: {
+      time: number
+      violations: number
+      ruleErrors: number
+      rules: {
+        [ruleName: string]: {
+          violations: number
+          time: number
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -263,6 +362,12 @@ export type AssistantSuccessResult = {
       }
     }
   }
+  /**
+   * Object containing information about how long each rule took to execute.
+   */
+  profile: {
+    ruleTimings: { [ruleName: string]: number }
+  }
 }
 
 //
@@ -305,6 +410,13 @@ export type RuleUtils = {
    * foreign objects, that is, objects that have been imported from a library.
    */
   foreignObjects: IterableObjectCache
+  /**
+   * Determine if a given Sketch file object has been ignored in the run's IgnoreConfig. Ignored
+   * objects are automatically filtered out while iterating objects, however if you use a different
+   * mechanism to traverse the Sketch file you should manually determine whether an object is ignored
+   * before reporting it in a violation.
+   */
+  isObjectIgnoredForRule: (object: SketchFileObject) => boolean
   /**
    * Get a rule option value by name. Should throw if the rule hasn’t been configured properly in
    * the current assistant context, since it’s essential that every rule activated in an assistant is
